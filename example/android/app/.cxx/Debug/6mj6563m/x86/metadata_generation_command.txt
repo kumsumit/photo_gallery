@@ -1,0 +1,20 @@
+                        -H/home/sumit/softwares/flutter/packages/flutter_tools/gradle/src/main/groovy
+-DCMAKE_SYSTEM_NAME=Android
+-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+-DCMAKE_SYSTEM_VERSION=23
+-DANDROID_PLATFORM=android-23
+-DANDROID_ABI=x86
+-DCMAKE_ANDROID_ARCH_ABI=x86
+-DANDROID_NDK=/home/sumit/Android/Sdk/ndk/28.0.13004108
+-DCMAKE_ANDROID_NDK=/home/sumit/Android/Sdk/ndk/28.0.13004108
+-DCMAKE_TOOLCHAIN_FILE=/home/sumit/Android/Sdk/ndk/28.0.13004108/build/cmake/android.toolchain.cmake
+-DCMAKE_MAKE_PROGRAM=/home/sumit/Android/Sdk/cmake/3.22.1/bin/ninja
+-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/sumit/AndroidStudioProjects/photo_gallery/example/build/app/intermediates/cxx/Debug/6mj6563m/obj/x86
+-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/sumit/AndroidStudioProjects/photo_gallery/example/build/app/intermediates/cxx/Debug/6mj6563m/obj/x86
+-DCMAKE_BUILD_TYPE=Debug
+-B/home/sumit/AndroidStudioProjects/photo_gallery/example/android/app/.cxx/Debug/6mj6563m/x86
+-GNinja
+-Wno-dev
+--no-warn-unused-cli
+                        Build command args: []
+                        Version: 2

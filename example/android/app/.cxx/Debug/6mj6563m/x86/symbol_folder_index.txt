@@ -1,0 +1,1 @@
+/home/sumit/AndroidStudioProjects/photo_gallery/example/build/app/intermediates/cxx/Debug/6mj6563m/obj/x86
