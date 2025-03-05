@@ -8,11 +8,13 @@ import 'package:transparent_image/transparent_image.dart';
 import 'package:video_player/video_player.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 /// The main widget of example app
 class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
   @override
   _MyAppState createState() => _MyAppState();
 }
@@ -66,7 +68,7 @@ class _MyAppState extends State<MyApp> {
           title: const Text('Photo gallery example'),
         ),
         body: _loading
-            ? Center(
+            ? const Center(
                 child: CircularProgressIndicator(),
               )
             : LayoutBuilder(
@@ -75,7 +77,7 @@ class _MyAppState extends State<MyApp> {
                   double gridHeight = gridWidth + 33;
                   double ratio = gridWidth / gridHeight;
                   return Container(
-                    padding: EdgeInsets.all(5),
+                    padding: const EdgeInsets.all(5),
                     child: GridView.count(
                       childAspectRatio: ratio,
                       crossAxisCount: 3,
@@ -110,12 +112,12 @@ class _MyAppState extends State<MyApp> {
                                 ),
                                 Container(
                                   alignment: Alignment.topLeft,
-                                  padding: EdgeInsets.only(left: 2.0),
+                                  padding: const EdgeInsets.only(left: 2.0),
                                   child: Text(
                                     album.name ?? "Unnamed Album",
                                     maxLines: 1,
                                     textAlign: TextAlign.start,
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       height: 1.2,
                                       fontSize: 16,
                                     ),
@@ -123,11 +125,11 @@ class _MyAppState extends State<MyApp> {
                                 ),
                                 Container(
                                   alignment: Alignment.topLeft,
-                                  padding: EdgeInsets.only(left: 2.0),
+                                  padding: const EdgeInsets.only(left: 2.0),
                                   child: Text(
                                     album.count.toString(),
                                     textAlign: TextAlign.start,
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       height: 1.2,
                                       fontSize: 12,
                                     ),
@@ -153,7 +155,7 @@ class AlbumPage extends StatefulWidget {
   final Album album;
 
   /// The constructor of AlbumPage
-  AlbumPage(Album album) : album = album;
+  const AlbumPage(Album album, {super.key}) : album = album;
 
   @override
   State<StatefulWidget> createState() => _AlbumPageState();
@@ -181,7 +183,7 @@ class _AlbumPageState extends State<AlbumPage> {
       home: Scaffold(
         appBar: AppBar(
           leading: IconButton(
-            icon: Icon(Icons.arrow_back_ios),
+            icon: const Icon(Icons.arrow_back_ios),
             onPressed: () => Navigator.of(context).pop(),
           ),
           title: Text(widget.album.name ?? "Unnamed Album"),
@@ -223,7 +225,7 @@ class ViewerPage extends StatelessWidget {
   final Medium medium;
 
   /// The constructor of ViewerPage
-  ViewerPage(Medium medium) : medium = medium;
+  const ViewerPage(Medium medium, {super.key}) : medium = medium;
 
   @override
   Widget build(BuildContext context) {
@@ -233,7 +235,7 @@ class ViewerPage extends StatelessWidget {
         appBar: AppBar(
           leading: IconButton(
             onPressed: () => Navigator.of(context).pop(),
-            icon: Icon(Icons.arrow_back_ios),
+            icon: const Icon(Icons.arrow_back_ios),
           ),
           title: date != null ? Text(date.toLocal().toString()) : null,
         ),
@@ -266,6 +268,7 @@ class VideoProvider extends StatefulWidget {
 
   /// The constructor of VideoProvider
   const VideoProvider({
+    super.key,
     required this.mediumId,
   });
 
