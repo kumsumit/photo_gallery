@@ -1,54 +1,48 @@
-group 'com.morbit.photogallery'
-version '1.0-SNAPSHOT'
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-buildscript {
-    ext.kotlin_version = '2.2.21'
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.2'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android") version "2.3.21"
 }
 
-rootProject.allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+group = "com.morbit.photogallery"
+version = "1.0-SNAPSHOT"
 
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
+repositories {
+    google()
+    mavenCentral()
+}
 
 android {
-    compileSdk 36
-    namespace 'com.morbit.photogallery'
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
+    namespace = "com.morbit.photogallery"
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 24
     }
 
-    kotlinOptions {
-        jvmTarget = '21'
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_21)
+        }
     }
 
     sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
+        getByName("main") {
+            java.srcDirs("src/main/kotlin")
+        }
     }
 
-    defaultConfig {
-        minSdk 23
-    }
-
-    lintOptions {
-        disable 'InvalidPackage'
+    lint {
+        disable += "InvalidPackage"
     }
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation(kotlin("stdlib"))
 }
