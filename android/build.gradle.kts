@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.library")
@@ -24,15 +25,22 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-
     sourceSets {
         getByName("main") {
-            java.directories.add("src/main/kotlin")
+            java.srcDir("src/main/kotlin")
         }
     }
 
     lint {
         disable += "InvalidPackage"
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Keep the Kotlin JVM target aligned with the Java compile options
+        // above; otherwise AGP fails with an inconsistent JVM-target error.
+        jvmTarget.set(JvmTarget.JVM_21)
     }
 }
 
