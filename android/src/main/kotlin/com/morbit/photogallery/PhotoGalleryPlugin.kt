@@ -5,11 +5,16 @@ import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.content.IntentSender
 import android.database.Cursor
 import android.database.Cursor.FIELD_TYPE_INTEGER
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Size
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -19,6 +24,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.plugin.common.PluginRegistry
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -27,24 +33,17 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /** PhotoGalleryPlugin */
-class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
+class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
+    PluginRegistry.ActivityResultListener {
     companion object {
-        // This static function is optional and equivalent to onAttachedToEngine. It supports the old
-        // pre-Flutter-1.12 Android projects. You are encouraged to continue supporting
-        // plugin registration via this function while apps migrate to use the new Android APIs
-        // post-flutter-1.12 via https://flutter.dev/go/android-project-migration.
-        //
-        // It is encouraged to share logic between onAttachedToEngine and registerWith to keep
-        // them functionally equivalent. Only one of onAttachedToEngine or registerWith will be called
-        // depending on the user's project. onAttachedToEngine or registerWith must both be defined
-        // in the same class.
-       
-
         const val imageType = "image"
         const val videoType = "video"
 
         const val allAlbumId = "__ALL__"
         const val allAlbumName = "All"
+
+        // Request code used for the system trash/delete confirmation dialog.
+        const val deleteRequestCode = 70001
 
         val imageMetadataProjection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -94,8 +93,14 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private var activity: Activity? = null
+    private var activityBinding: ActivityPluginBinding? = null
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Holds the in-flight deleteMedium result while the system trash/delete
+    // confirmation dialog is shown, so it can be completed in onActivityResult.
+    private var pendingDeleteResult: Result? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "photo_gallery")
@@ -110,18 +115,31 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         this.activity = binding.activity
+        this.activityBinding = binding
+        binding.addActivityResultListener(this)
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        this.activity = binding.activity
+        onAttachedToActivity(binding)
     }
 
     override fun onDetachedFromActivity() {
+        this.activityBinding?.removeActivityResultListener(this)
+        this.activityBinding = null
         this.activity = null
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
-        this.activity = null
+        onDetachedFromActivity()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode != deleteRequestCode) return false
+        val result = pendingDeleteResult
+        pendingDeleteResult = null
+        // RESULT_OK indicates the user confirmed the system trash/delete dialog.
+        result?.success(resultCode == Activity.RESULT_OK)
+        return true
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -200,10 +218,16 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             "deleteMedium" -> {
                 val mediumId = call.argument<String>("mediumId")
                 val mediumType = call.argument<String>("mediumType")
-                executor.submit {
-                    result.success(
-                        deleteMedium(mediumId!!, mediumType)
+                if (pendingDeleteResult != null) {
+                    result.error(
+                        "already_active",
+                        "A delete operation is already in progress.",
+                        null
                     )
+                    return
+                }
+                executor.submit {
+                    deleteMedium(result, mediumId!!, mediumType)
                 }
             }
 
@@ -523,6 +547,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
     }
 
+    @Suppress("DEPRECATION") // Legacy Thumbnails API is only used on Android < 10 (Q).
     private fun getImageThumbnail(mediumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
         var byteArray: ByteArray? = null
 
@@ -559,6 +584,7 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         return byteArray
     }
 
+    @Suppress("DEPRECATION") // Legacy Thumbnails API is only used on Android < 10 (Q).
     private fun getVideoThumbnail(mediumId: String, width: Int?, height: Int?, highQuality: Boolean?): ByteArray? {
         var byteArray: ByteArray? = null
 
@@ -867,58 +893,77 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     private fun getImageFile(mediumId: String, mimeType: String? = null): String? {
         return this.context.run {
+            val uri = ContentUris.withAppendedId(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                mediumId.toLong()
+            )
+
             mimeType?.let {
-                val type = this.contentResolver.getType(
-                    ContentUris.withAppendedId(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                        mediumId.toLong()
-                    )
-                )
+                val type = this.contentResolver.getType(uri)
                 if (it != type) {
                     return@run cacheImage(mediumId, it)
                 }
             }
 
-            val imageCursor = this.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Images.Media.DATA),
-                "${MediaStore.Images.Media._ID} = ?",
-                arrayOf(mediumId),
-                null
-            )
-
-            imageCursor?.use { cursor ->
-                if (cursor.moveToNext()) {
-                    val dataColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-                    return@run cursor.getString(dataColumn)
-                }
-            }
-
-            return@run null
+            return@run copyToCache(uri, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediumId)
         }
     }
 
     private fun getVideoFile(mediumId: String): String? {
         return this.context.run {
-            val videoCursor = this.contentResolver.query(
+            val uri = ContentUris.withAppendedId(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Video.Media.DATA),
-                "${MediaStore.Video.Media._ID} = ?",
-                arrayOf(mediumId),
-                null
+                mediumId.toLong()
             )
-
-            videoCursor?.use { cursor ->
-                if (cursor.moveToNext()) {
-                    val dataColumn = cursor.getColumnIndex(MediaStore.Video.Media.DATA)
-                    return@run cursor.getString(dataColumn)
-                }
-            }
-
-            return@run null
+            return@run copyToCache(uri, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediumId)
         }
     }
 
+    /**
+     * Copies the content identified by [uri] into the plugin cache directory and
+     * returns the absolute path of the copy.
+     *
+     * This replaces returning a raw [MediaStore.MediaColumns.DATA] path, which is
+     * unreliable under scoped storage (Android 10+) and may be null or unreadable.
+     */
+    private fun copyToCache(uri: Uri, collection: Uri, mediumId: String): String? {
+        return this.context.run {
+            val displayName = this.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                "${MediaStore.MediaColumns._ID} = ?",
+                arrayOf(mediumId),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                    cursor.getString(nameColumn)
+                } else {
+                    null
+                }
+            } ?: mediumId
+
+            // Prefix with the id to avoid collisions between identically named files.
+            val target = File(getCachePath(), "$mediumId-$displayName")
+            if (target.exists() && target.length() > 0) {
+                return@run target.absolutePath
+            }
+
+            try {
+                this.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(target).use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: return@run null
+            } catch (e: Exception) {
+                return@run null
+            }
+
+            return@run target.absolutePath
+        }
+    }
+
+    @Suppress("DEPRECATION") // Media.getBitmap is only used on Android < 9 (P).
     private fun cacheImage(mediumId: String, mimeType: String): String? {
         val bitmap: Bitmap? = this.context.run {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -1150,146 +1195,114 @@ class PhotoGalleryPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
     }
 
-    private fun deleteMedium(mediumId: String, mediumType: String?) {
-        when (mediumType) {
-            imageType -> {
-                deleteImageMedium(mediumId)
+    private fun deleteMedium(result: Result, mediumId: String, mediumType: String?) {
+        try {
+            val handled = when (mediumType) {
+                imageType -> deleteImageMedium(result, mediumId)
+                videoType -> deleteVideoMedium(result, mediumId)
+                else -> deleteImageMedium(result, mediumId) || deleteVideoMedium(result, mediumId)
             }
-
-            videoType -> {
-                deleteVideoMedium(mediumId)
+            if (!handled) {
+                // No matching medium was found, so there is nothing to confirm.
+                completeDelete(result, false)
             }
+        } catch (e: Exception) {
+            pendingDeleteResult = null
+            mainHandler.post { result.error("delete_failed", e.message, null) }
+        }
+    }
 
-            else -> {
-                deleteImageMedium(mediumId)
-                deleteVideoMedium(mediumId)
+    private fun deleteImageMedium(result: Result, mediumId: String): Boolean =
+        deleteMediumOfType(
+            result,
+            mediumId,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Images.Media._ID
+        )
+
+    private fun deleteVideoMedium(result: Result, mediumId: String): Boolean =
+        deleteMediumOfType(
+            result,
+            mediumId,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Video.Media._ID
+        )
+
+    /**
+     * Attempts to delete the medium identified by [mediumId] from [collection].
+     *
+     * Returns `true` when this call has taken ownership of [result] (either by
+     * completing it directly or by launching a system confirmation dialog whose
+     * outcome will be delivered via [onActivityResult]); returns `false` when no
+     * matching medium exists, leaving [result] for the caller to complete.
+     */
+    private fun deleteMediumOfType(
+        result: Result,
+        mediumId: String,
+        collection: Uri,
+        idColumn: String
+    ): Boolean {
+        val selection = "$idColumn = ?"
+        val selectionArgs = arrayOf(mediumId)
+        val uri = ContentUris.withAppendedId(collection, mediumId.toLong())
+
+        val exists = this.context.contentResolver.query(
+            collection, arrayOf(idColumn), selection, selectionArgs, null
+        )?.use { it.count > 0 } ?: false
+
+        if (!exists) return false
+
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+            // Android 11+: the system shows a trash confirmation dialog and the
+            // user's choice is delivered to onActivityResult.
+            val pendingIntent = MediaStore.createTrashRequest(
+                this.context.contentResolver,
+                Collections.singleton(uri),
+                true
+            )
+            launchDeleteRequest(result, pendingIntent.intentSender)
+            return true
+        }
+
+        return try {
+            this.context.contentResolver.delete(uri, selection, selectionArgs)
+            completeDelete(result, true)
+            true
+        } catch (e: SecurityException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val recoverable = e as? RecoverableSecurityException ?: throw e
+                launchDeleteRequest(result, recoverable.userAction.actionIntent.intentSender)
+            } else {
+                // Pre-Android 10 without delete permission: report failure.
+                completeDelete(result, false)
+            }
+            true
+        }
+    }
+
+    private fun launchDeleteRequest(result: Result, intentSender: IntentSender) {
+        val currentActivity = activity
+        if (currentActivity == null) {
+            mainHandler.post {
+                result.error("no_activity", "Plugin is not attached to an activity.", null)
+            }
+            return
+        }
+        pendingDeleteResult = result
+        mainHandler.post {
+            try {
+                currentActivity.startIntentSenderForResult(
+                    intentSender, deleteRequestCode, null, 0, 0, 0
+                )
+            } catch (e: Exception) {
+                pendingDeleteResult = null
+                result.error("delete_failed", e.message, null)
             }
         }
     }
 
-
-    private fun deleteImageMedium(mediumId: String) {
-        this.context.run {
-            val selection = "${MediaStore.Images.Media._ID} = ?"
-            val selectionArgs = arrayOf(mediumId)
-            val imageCursor = this.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                null,
-                selection,
-                selectionArgs,
-                null
-            )
-            imageCursor?.use {
-                if (it.count > 0) {
-                    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
-                        val pendingIntent = MediaStore.createTrashRequest(
-                            this.contentResolver,
-                            Collections.singleton(
-                                ContentUris.withAppendedId(
-                                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                                    mediumId.toLong()
-                                )
-                            ),
-                            true
-                        )
-                        activity?.startIntentSenderForResult(
-                            pendingIntent.intentSender,
-                            0,
-                            null,
-                            0,
-                            0,
-                            0
-                        )
-                    } else {
-                        try {
-                            this.contentResolver.delete(
-                                ContentUris.withAppendedId(
-                                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                                    mediumId.toLong()
-                                ),
-                                selection,
-                                selectionArgs
-                            )
-                        } catch (e: SecurityException) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                val securityException = e as? RecoverableSecurityException ?: throw e
-                                val intentSender = securityException.userAction.actionIntent.intentSender
-                                activity?.startIntentSenderForResult(
-                                    intentSender,
-                                    0,
-                                    null,
-                                    0,
-                                    0,
-                                    0
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun deleteVideoMedium(mediumId: String) {
-        this.context.run {
-            val selection = "${MediaStore.Video.Media._ID} = ?"
-            val selectionArgs = arrayOf(mediumId)
-            val videoCursor = this.contentResolver.query(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                null,
-                selection,
-                selectionArgs,
-                null
-            )
-            videoCursor?.use {
-                if (it.count > 0) {
-                    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
-                        val pendingIntent = MediaStore.createTrashRequest(
-                            this.contentResolver,
-                            Collections.singleton(
-                                ContentUris.withAppendedId(
-                                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                                    mediumId.toLong()
-                                )
-                            ),
-                            true
-                        )
-                        activity?.startIntentSenderForResult(
-                            pendingIntent.intentSender,
-                            0,
-                            null,
-                            0,
-                            0,
-                            0
-                        )
-                    } else {
-                        try {
-                            this.contentResolver.delete(
-                                ContentUris.withAppendedId(
-                                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                                    mediumId.toLong()
-                                ),
-                                selection,
-                                selectionArgs
-                            )
-                        } catch (e: SecurityException) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                val securityException = e as? RecoverableSecurityException ?: throw e
-                                val intentSender = securityException.userAction.actionIntent.intentSender
-                                activity?.startIntentSenderForResult(
-                                    intentSender,
-                                    0,
-                                    null,
-                                    0,
-                                    0,
-                                    0
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    private fun completeDelete(result: Result, deleted: Boolean) {
+        mainHandler.post { result.success(deleted) }
     }
 
     private fun cleanCache() {

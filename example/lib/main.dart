@@ -155,7 +155,7 @@ class AlbumPage extends StatefulWidget {
   final Album album;
 
   /// The constructor of AlbumPage
-  const AlbumPage(Album album, {super.key}) : album = album;
+  const AlbumPage(this.album, {super.key});
 
   @override
   State<StatefulWidget> createState() => _AlbumPageState();
@@ -225,7 +225,7 @@ class ViewerPage extends StatelessWidget {
   final Medium medium;
 
   /// The constructor of ViewerPage
-  const ViewerPage(Medium medium, {super.key}) : medium = medium;
+  const ViewerPage(this.medium, {super.key});
 
   @override
   Widget build(BuildContext context) {

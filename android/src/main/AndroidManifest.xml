@@ -1,1 +1,20 @@
-<manifest></manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Permissions required to read media from the device gallery.
+        These are merged into the host application's manifest automatically.
+    -->
+
+    <!-- Android 12 (API 32) and below: legacy read access. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Android 13 (API 33) and above: granular media permissions. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+
+    <!-- Android 14 (API 34) and above: partial (user-selected) media access. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
+</manifest>
